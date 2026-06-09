@@ -8,9 +8,9 @@ Dự án môn **Big Data** — phân tích bộ dữ liệu thương mại đi�
 
 | STT | Họ và tên | MSSV |
 |-----|-----------|------|
-| 1 | | |
-| 2 | | |
-| 3 | | |
+| 1 | Nguyễn Quỳnh Trang | 31231027655 |
+| 2 | Trần Thảo Trang | 31231022291 |
+| 3 | Nguyễn Hoàng Phước | 31231021201 |
 
 ---
 
