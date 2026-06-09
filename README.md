@@ -61,8 +61,8 @@ Dự án môn **Big Data** — phân tích bộ dữ liệu thương mại đi�
 ```
 BigData_Nhom3/
 ├── README.md
-├── preprocessing.ipynb       # Tiền xử lý dữ liệu, lưu kết quả lên HDFS
-└── spark_analysis.ipynb      # Tiền xử lý + 10 câu truy vấn Spark SQL
+├── preprocessing.ipynb       # Tiền xử lý dữ liệu, tạo và lưu các Temp View lên Spark Warehouse
+└── spark_sql_queries.ipynb   # Thực hiện 10 câu truy vấn Spark SQL từ dữ liệu đã tiền xử lý
 ```
 
 ---
@@ -126,16 +126,17 @@ hdfs dfs -ls /user/hadoop/ecommerce/
 
 Mở VS Code → mở file notebook → chạy từng cell theo thứ tự từ trên xuống.
 
-**Nếu chạy `preprocessing.ipynb` trước:**
-- File sẽ đọc CSV gốc, làm sạch, và lưu kết quả về `hdfs://localhost:9000/ecom/ecom_clean_csv`
+**1. Chạy `preprocessing.ipynb` trước:**
+- File sẽ đọc CSV gốc từ HDFS, làm sạch, thực hiện tiền xử lý, tạo các Temp View (orders, order_items, customers, categories) và lưu chúng dưới dạng bảng Parquet trong thư mục `spark-warehouse` cục bộ.
 
-**Nếu chạy `spark_analysis.ipynb`:**
-- Notebook này tự xử lý dữ liệu và thực hiện 10 câu phân tích Spark SQL trong một file duy nhất
+**2. Sau đó chạy `spark_sql_queries.ipynb`:**
+- Notebook này sẽ load các bảng Parquet từ Spark Warehouse đã được tạo từ bước trước và thực hiện 10 câu phân tích Spark SQL.
 
 ---
 
-## 🔄 Pipeline xử lý dữ liệu (`spark_analysis.ipynb`)
+## 🔄 Pipeline xử lý dữ liệu
 
+**Phần 1: Tiền xử lý (`preprocessing.ipynb`)**
 ```
 HDFS: /user/hadoop/ecommerce/Pakistan_Ecommerce.csv
             │
@@ -153,14 +154,19 @@ HDFS: /user/hadoop/ecommerce/Pakistan_Ecommerce.csv
        └── Chuẩn hóa merchandise_value (xóa dấu phẩy, cast double)
             │
             ▼
-    3. Tạo 4 Temp View
+    3. Tạo 4 Bảng (Lưu vào Spark Warehouse)
        ├── orders        (thông tin đơn hàng)
        ├── order_items   (chi tiết sản phẩm)
        ├── customers     (khách hàng, đã dedup)
        └── categories    (tổng hợp theo danh mục)
+```
+
+**Phần 2: Truy vấn (`spark_sql_queries.ipynb`)**
+```
+    4. Load dữ liệu từ Spark Warehouse
             │
             ▼
-    4. 10 câu Spark SQL
+    5. Thực hiện 10 câu Spark SQL
 ```
 
 ---
