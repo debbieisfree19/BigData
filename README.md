@@ -1,6 +1,6 @@
 # 📦 BigData Nhóm 3 — Phân tích Pakistan Largest E-Commerce Dataset
 
-Dự án môn **Big Data** — phân tích bộ dữ liệu thương mại điện tử lớn nhất Pakistan bằng **Apache Hadoop HDFS** và **Apache Spark** (PySpark + Spark SQL) trên môi trường Windows (Jupyter Notebook / VS Code).
+Dự án môn **Big Data** — phân tích bộ dữ liệu thương mại điện tử lớn nhất Pakistan bằng **Apache Hadoop HDFS** và **Apache Spark** (PySpark + Spark SQL), kết hợp mô hình **Machine Learning (LinearSVC)** dự đoán đơn hàng bị hủy, chạy trên môi trường Windows (Jupyter Notebook / VS Code).
 
 ---
 
@@ -22,25 +22,27 @@ Dự án môn **Big Data** — phân tích bộ dữ liệu thương mại đi�
 | **Nguồn** | [Kaggle](https://www.kaggle.com/datasets/zusmani/pakistans-largest-ecommerce-dataset) |
 | **Quy mô** | 905,208 dòng × 26 cột |
 | **Thời gian** | 2016 – 2018 |
-| **Định dạng** | CSV (`Pakistan_Ecommerce.csv`) |
+| **Định dạng** | CSV (`Pakistan_Largest_Ecommerce_Dataset.csv`) |
 
-**Các cột chính:**
+**Các cột chính được sử dụng:**
 
-| Cột | Mô tả |
-|-----|-------|
-| `item_id` | ID sản phẩm |
-| `increment_id` | ID đơn hàng |
-| `Customer ID` | ID khách hàng |
-| `created_at` | Ngày đặt hàng |
-| `status` | Trạng thái đơn hàng |
-| `price` | Giá sản phẩm |
-| `qty_ordered` | Số lượng đặt |
-| `grand_total` | Tổng tiền đơn hàng |
-| `discount_amount` | Số tiền giảm giá |
-| `category_name_1` | Danh mục sản phẩm |
-| `payment_method` | Phương thức thanh toán |
-| `MV` | Merchandise value |
-| `Customer Since` | Ngày đăng ký tài khoản |
+| Cột | Kiểu | Mô tả |
+|-----|------|-------|
+| `increment_id` | string | Mã đơn hàng (unique per order) |
+| `item_id` | string | Mã dòng sản phẩm (một đơn có thể có nhiều item) |
+| `customer_id` | string | Mã khách hàng |
+| `category_name_1` | string | Danh mục sản phẩm cấp 1 |
+| `sku` | string | Mã SKU sản phẩm |
+| `price` | double | Đơn giá sản phẩm |
+| `qty_ordered` | double | Số lượng đặt hàng |
+| `grand_total` | double | Tổng tiền thực thu (sau giảm giá) |
+| `discount_amount` | double | Số tiền giảm giá; `grand_total + discount_amount` = giá gốc |
+| `payment_method` | string | Phương thức thanh toán (`cod`, `easypay`, ...) |
+| `status` | string | Trạng thái đơn hàng (`complete`, `canceled`, `order_refunded`, ...) |
+| `order_year` | integer | Năm đặt hàng (có thể NULL) |
+| `order_month` | integer | Tháng đặt hàng (có thể NULL) |
+
+> **Lưu ý:** `#N/A` trong CSV gốc được xử lý thành `null` khi đọc. Một số dòng bị lệch cột (category ghi nhầm thành payment_method) — đã lọc trong bước tiền xử lý.
 
 ---
 
@@ -49,6 +51,7 @@ Dự án môn **Big Data** — phân tích bộ dữ liệu thương mại đi�
 - **Apache Hadoop 3.4.3** — lưu trữ phân tán (HDFS)
 - **Apache Spark / PySpark** — xử lý dữ liệu lớn
 - **Spark SQL** — truy vấn phân tích
+- **Spark MLlib** — mô hình phân loại LinearSVC
 - **Python 3.9**
 - **Jupyter Notebook** (chạy trong VS Code)
 - **Java 8** (JDK 1.8)
@@ -61,8 +64,9 @@ Dự án môn **Big Data** — phân tích bộ dữ liệu thương mại đi�
 ```
 BigData_Nhom3/
 ├── README.md
-├── preprocessing.ipynb       # Tiền xử lý dữ liệu, tạo và lưu các Temp View lên Spark Warehouse
-└── spark_sql_queries.ipynb   # Thực hiện 10 câu truy vấn Spark SQL từ dữ liệu đã tiền xử lý
+├── preprocessing.ipynb           # Tiền xử lý dữ liệu, xuất file sạch lên HDFS
+├── sql_queries.ipynb             # 10 câu truy vấn Spark SQL phân tích bán hàng
+└── LinearSVC_canceledorder.ipynb # Mô hình ML dự đoán đơn hàng bị hủy (LinearSVC)
 ```
 
 ---
@@ -76,6 +80,7 @@ BigData_Nhom3/
 - Python 3.9
 - PySpark (`pip install pyspark`)
 - Jupyter (`pip install jupyter` hoặc dùng VS Code + Jupyter extension)
+- matplotlib + seaborn (`pip install matplotlib seaborn`) — dùng cho Confusion Matrix
 
 ### Biến môi trường Windows (System Environment Variables)
 
@@ -112,105 +117,123 @@ Kiểm tra YARN đang chạy tại: [http://localhost:8088](http://localhost:808
 ### Bước 2 — Upload dataset lên HDFS
 
 ```cmd
-hdfs dfs -mkdir -p /user/hadoop/ecommerce
-hdfs dfs -put D:\đường\dẫn\Pakistan_Ecommerce.csv /user/hadoop/ecommerce/
+hdfs dfs -mkdir -p /ecom
+hdfs dfs -put D:\đường\dẫn\Pakistan_Largest_Ecommerce_Dataset.csv /ecom/
 ```
 
 Kiểm tra file đã lên chưa:
 
 ```cmd
-hdfs dfs -ls /user/hadoop/ecommerce/
+hdfs dfs -ls /ecom/
 ```
 
-### Bước 3 — Chạy notebook
+### Bước 3 — Chạy các notebook theo thứ tự
 
-Mở VS Code → mở file notebook → chạy từng cell theo thứ tự từ trên xuống.
+**1. `preprocessing.ipynb` — Tiền xử lý:**
+- Đọc CSV gốc từ `hdfs://localhost:9000/ecom/Pakistan_Largest_Ecommerce_Dataset.csv`
+- Làm sạch dữ liệu, ép kiểu, xử lý null, chuẩn hóa cột
+- Xuất file sạch lên `hdfs://localhost:9000/ecom/ecom_clean_final`
 
-**1. Chạy `preprocessing.ipynb` trước:**
-- File sẽ đọc CSV gốc từ HDFS, làm sạch, thực hiện tiền xử lý, tạo các Temp View (orders, order_items, customers, categories) và lưu chúng dưới dạng bảng Parquet trong thư mục `spark-warehouse` cục bộ.
+**2. `sql_queries.ipynb` — Phân tích Spark SQL:**
+- Đọc dữ liệu sạch từ `hdfs://localhost:9000/ecom/ecom_clean_final`
+- Tạo Temp View `sales` với 13 cột đã chọn
+- Thực hiện 10 câu truy vấn phân tích bán hàng
 
-**2. Sau đó chạy `spark_sql_queries.ipynb`:**
-- Notebook này sẽ load các bảng Parquet từ Spark Warehouse đã được tạo từ bước trước và thực hiện 10 câu phân tích Spark SQL.
+**3. `LinearSVC_canceledorder.ipynb` — Mô hình ML:**
+- Đọc dữ liệu sạch từ `hdfs://localhost:9000/ecom/ecom_clean_final`
+- Huấn luyện mô hình LinearSVC dự đoán đơn hàng bị hủy
+- Đánh giá mô hình và vẽ Confusion Matrix
 
 ---
 
 ## 🔄 Pipeline xử lý dữ liệu
 
-**Phần 1: Tiền xử lý (`preprocessing.ipynb`)**
 ```
-HDFS: /user/hadoop/ecommerce/Pakistan_Ecommerce.csv
+HDFS: /ecom/Pakistan_Largest_Ecommerce_Dataset.csv
             │
             ▼
+    [preprocessing.ipynb]
     1. Đọc CSV (nullValue="#N/A")
+    2. Chuẩn hóa tên cột, xóa cột rác (_c21–_c25)
+    3. Lọc dòng lỗi (item_id null, category lệch cột)
+    4. Ép kiểu số (price, qty_ordered, grand_total, discount_amount)
+    5. Parse ngày → order_year, order_month
+    6. Chuẩn hóa status, tạo label (canceled=1 / other=0)
             │
             ▼
-    2. Tiền xử lý
-       ├── Chuẩn hóa tên cột (bỏ khoảng trắng)
-       ├── Xóa cột Unnamed / _c21..._c25
-       ├── Lọc dòng lỗi (item_id null, category lệch cột)
-       ├── Ép kiểu số (price, qty_ordered, grand_total, discount_amount)
-       ├── Parse ngày → order_date (DateType)
-       ├── Tạo status_clean, is_successful, quarter
-       └── Chuẩn hóa merchandise_value (xóa dấu phẩy, cast double)
+    HDFS: /ecom/ecom_clean_final  (Parquet)
             │
-            ▼
-    3. Tạo 4 Bảng (Lưu vào Spark Warehouse)
-       ├── orders        (thông tin đơn hàng)
-       ├── order_items   (chi tiết sản phẩm)
-       ├── customers     (khách hàng, đã dedup)
-       └── categories    (tổng hợp theo danh mục)
-```
-
-**Phần 2: Truy vấn (`spark_sql_queries.ipynb`)**
-```
-    4. Load dữ liệu từ Spark Warehouse
-            │
-            ▼
-    5. Thực hiện 10 câu Spark SQL
+            ├──────────────────────────────────────┐
+            ▼                                      ▼
+    [sql_queries.ipynb]              [LinearSVC_canceledorder.ipynb]
+    Tạo Temp View "sales"            Mã hóa category, payment_method
+    → 10 câu Spark SQL               → VectorAssembler → LinearSVC
+                                     → Đánh giá: Accuracy, F1, AUC
 ```
 
 ---
 
 ## 📋 Danh sách 10 câu truy vấn Spark SQL
 
-| # | Tên | Kỹ thuật | Ý nghĩa |
-|---|-----|----------|---------|
-| 1 | Thống kê doanh thu theo danh mục | GROUP BY + COUNT DISTINCT, SUM, AVG, MIN, MAX | Danh mục đóng góp doanh thu cao nhất và tỷ lệ giảm giá |
-| 2 | Đơn hàng giá trị cao bị hủy/hoàn | WHERE + Subquery (ngưỡng AVG×2) + JOIN | Phát hiện đơn lớn thất thoát để CSKH xử lý |
-| 3 | Xu hướng doanh thu theo tháng/quý | GROUP BY + SUM OVER (lũy kế YTD) | Tháng doanh thu đỉnh điểm, kế hoạch theo mùa vụ |
-| 4 | Hành vi khách hàng mới vs cũ | JOIN 3 bảng + GROUP BY + CASE WHEN | So sánh chi tiêu và tỷ lệ hoàn thành theo nhóm |
-| 5 | Top 5 danh mục từng năm + tăng trưởng YoY | RANK() OVER (PARTITION BY year) + LAG() | Nhận diện danh mục tăng trưởng hay suy giảm |
-| 6 | Khách hàng VIP vượt chi tiêu trung bình | Nested Subquery 2 tầng + JOIN 3 bảng | Phân khúc khách hàng cao giá trị |
-| 7 | Tỷ lệ hoàn thành theo phương thức thanh toán | GROUP BY + CASE WHEN + tỷ lệ % | Tối ưu phương thức thanh toán, giảm hủy đơn |
-| 8 | Tăng trưởng doanh thu MoM | LAG() + SUM() OVER (ROWS BETWEEN) | Phát hiện tháng đột biến, hỗ trợ dự báo |
-| 9 | Top 3 SKU bán chạy nhất từng danh mục | RANK() OVER (PARTITION BY category) + % đóng góp | Quản lý tồn kho, ưu tiên sản phẩm chủ lực |
-| 10 | Hiệu suất danh mục so với trung bình toàn sàn | JOIN 3 bảng + AVG() OVER + CASE WHEN | Đánh giá danh mục vượt trội hay tụt hậu |
+| # | Tên | Kỹ thuật SQL |
+|---|-----|-------------|
+| 1 | Doanh thu và sản lượng theo danh mục | `GROUP BY` + `COUNT DISTINCT`, `SUM`, `AVG` + `ORDER BY` |
+| 2 | Top 10 SKU bán chạy nhất theo doanh thu | `GROUP BY` + `HAVING` + `LIMIT` |
+| 3 | Doanh thu theo tháng (năm × tháng) | `GROUP BY` đa chiều (year + month) + `ORDER BY` |
+| 4 | Tỷ lệ trạng thái đơn hàng | `CASE WHEN` + Aggregation + Window `SUM() OVER ()` |
+| 5 | Đơn hàng giá trị cao bị hủy / hoàn trả | `WHERE` + Subquery (ngưỡng `AVG × 2`) + `CASE WHEN` |
+| 6 | Top 10 khách hàng chi tiêu nhiều nhất | `WHERE` + `GROUP BY` + `ORDER BY` + `LIMIT` |
+| 7 | Hiệu quả khuyến mãi theo danh mục | `CASE WHEN` phân nhóm % giảm giá + `GROUP BY` đa chiều + `revenue_per_discount` |
+| 8 | Tăng trưởng doanh thu MoM | CTE + Window `LAG()` + tính % tăng trưởng |
+| 9 | Top 3 danh mục theo doanh thu mỗi năm | Window `RANK() OVER (PARTITION BY year)` + Subquery |
+| 10 | Hiệu quả phương thức thanh toán | `CASE WHEN` + Aggregation đa chiều + tỷ lệ hủy % |
 
 ---
 
-## 🗂️ 4 Temp View schema
+## 🗂️ CATALOG — Temp View `sales`
 
-**`orders`**
-```
-order_id, customer_id, order_date, year, month, quarter,
-fiscal_year, status, is_successful, payment_method, bi_status
-```
+| Cột | Kiểu | Ý nghĩa |
+|-----|------|---------|
+| `increment_id` | string | Mã đơn hàng — dùng `COUNT(DISTINCT increment_id)` để đếm đơn |
+| `item_id` | string | Mã dòng sản phẩm — một đơn có thể có nhiều `item_id` |
+| `customer_id` | string | Mã khách hàng |
+| `category_name_1` | string | Danh mục sản phẩm cấp 1 |
+| `sku` | string | Mã SKU sản phẩm |
+| `price` | double | Đơn giá sản phẩm |
+| `qty_ordered` | double | Số lượng đặt hàng |
+| `grand_total` | double | Tổng tiền thực thu (sau giảm giá) |
+| `discount_amount` | double | Số tiền giảm giá — `grand_total + discount_amount` = giá gốc |
+| `payment_method` | string | Phương thức thanh toán (`cod`, `easypay`, ...) |
+| `status` | string | Trạng thái đơn hàng (`complete`, `canceled`, `order_refunded`, ...) |
+| `order_year` | integer | Năm đặt hàng — lọc `IS NOT NULL` trước khi dùng time-series |
+| `order_month` | integer | Tháng đặt hàng — lọc `IS NOT NULL` trước khi dùng time-series |
 
-**`order_items`**
-```
-order_id, sku, category, price, qty_ordered,
-grand_total, discount_amount, merchandise_value
-```
+---
 
-**`customers`**
-```
-customer_id, customer_since
-```
+## 🤖 Mô hình ML — LinearSVC dự đoán đơn hàng bị hủy
 
-**`categories`**
-```
-category, total_items, avg_price, total_revenue
-```
+**Mục tiêu:** Dự đoán liệu một đơn hàng có bị hủy hay không dựa trên thông tin tại thời điểm đặt hàng.
+
+**Nhãn (label):**
+- `1` — đơn bị hủy (`status` chứa `"canceled"`)
+- `0` — đơn bình thường (các trạng thái còn lại)
+
+**Features sử dụng:**
+
+| Feature | Loại | Xử lý |
+|---------|------|-------|
+| `category_name_1` | Categorical | `StringIndexer` → `category_index` |
+| `payment_method` | Categorical | `StringIndexer` → `payment_index` |
+| `price` | Numerical | Làm sạch, cast double |
+| `qty_ordered` | Numerical | Làm sạch, cast double |
+| `grand_total` | Numerical | Làm sạch, cast double |
+| `discount_amount` | Numerical | Làm sạch, cast double |
+| `order_year` | Numerical | Dùng trực tiếp |
+| `order_month` | Numerical | Dùng trực tiếp |
+
+**Cấu hình mô hình:** `LinearSVC(maxIter=50, regParam=0.1)` — train/test split 80/20, `seed=42`
+
+**Đánh giá:** Accuracy, F1-Score, Precision, Recall, ROC-AUC + Confusion Matrix
 
 ---
 
@@ -218,15 +241,16 @@ category, total_items, avg_price, total_revenue
 
 | Lỗi | Nguyên nhân | Cách fix |
 |-----|-------------|----------|
-| `RPC response has invalid length` | NameNode ở Safe Mode hoặc YARN crash | Chạy `hdfs dfsadmin -safemode leave` |
-| `Access is denied` khi start-yarn | Windows chặn ghi vào `C:\tmp` | `mkdir C:\tmp` + cấp quyền `icacls` |
+| `RPC response has invalid length` | NameNode ở Safe Mode hoặc YARN crash | `hdfs dfsadmin -safemode leave` |
+| `Access is denied` khi start-yarn | Windows chặn ghi vào `C:\tmp` | `mkdir C:\tmp` + `icacls C:\tmp /grant Everyone:(OI)(CI)F /T` |
 | `No such file or directory` trên HDFS | Chưa upload file CSV | Chạy lệnh `hdfs dfs -put` ở Bước 2 |
 | `Connection refused port 9000` | NameNode chưa chạy | Chạy lại `start-dfs.cmd` với quyền Admin |
+| `InvalidFileException` khi đọc Parquet | Đọc trực tiếp CSV thay vì file sạch | Đảm bảo chạy `preprocessing.ipynb` trước |
 
 ---
 
 ## 📌 Ghi chú
 
-- Toàn bộ code được viết bằng **PySpark API** và **Spark SQL**
-- Dataset chứa một số dòng lỗi lệch cột (category bị ghi nhầm thành payment_method) — đã được lọc trong bước tiền xử lý
-- Chuỗi `#N/A` trong dataset được xử lý thành `null` ngay khi đọc file
+- Toàn bộ phân tích được thực hiện bằng **Spark SQL** và **PySpark API** trên một Temp View duy nhất `sales`
+- Câu 7 dùng ngưỡng giảm giá theo **tỷ lệ %** (`discount_amount / (grand_total + discount_amount)`) thay vì giá trị tuyệt đối để chuẩn hóa công bằng giữa các danh mục có mức giá khác nhau
+- HDFS path dùng trong project: `hdfs://localhost:9000/ecom/`
